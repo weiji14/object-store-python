@@ -10,6 +10,7 @@ use std::time::Duration;
 use crate::file::{ArrowFileSystemHandler, ObjectInputFile, ObjectOutputStream};
 use crate::utils::{flatten_list_stream, get_bytes};
 
+use object_store::parse_url as _parse_url;
 use object_store::path::{Error as PathError, Path};
 use object_store::{
     BackoffConfig, ClientOptions, DynObjectStore, Error as InnerObjectStoreError, ListResult,
@@ -19,8 +20,10 @@ use pyo3::exceptions::{
     PyException, PyFileExistsError, PyFileNotFoundError, PyNotImplementedError,
 };
 use pyo3::prelude::*;
-use pyo3::{types::PyBytes, PyErr};
+use pyo3::types::{PyBytes, PyString};
+use pyo3::PyErr;
 use tokio::runtime::Runtime;
+use url::Url;
 
 pub use builder::ObjectStoreBuilder;
 
@@ -646,6 +649,21 @@ impl PyObjectStore {
     }
 }
 
+/// Create an `ObjectStore` based on the provided `url`
+#[pyfunction]
+fn parse_url(url: &PyString) -> PyResult<PyObjectStore> {
+    let url = Url::parse(url.to_str()?).unwrap();
+    let (store, path) = _parse_url(&url).unwrap();
+
+    let py_object_store = PyObjectStore {
+        inner: Arc::from(store),
+        rt: Arc::new(Runtime::new()?),
+        root_url: path.to_string(),
+        options: None,
+    };
+    Ok(py_object_store)
+}
+
 #[pymodule]
 fn _internal(_py: Python, m: &PyModule) -> PyResult<()> {
     // Register the python classes
@@ -657,6 +675,8 @@ fn _internal(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<ArrowFileSystemHandler>()?;
     m.add_class::<ObjectInputFile>()?;
     m.add_class::<ObjectOutputStream>()?;
+    // Register the python functions
+    m.add_wrapped(wrap_pyfunction!(parse_url))?;
 
     Ok(())
 }
